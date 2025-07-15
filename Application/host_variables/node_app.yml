@@ -1,0 +1,6 @@
+# We should utilize Ansible vaults here to keep the information confedntials
+app_private_ip: <private EC2 ip>
+ansible_user: ubuntu
+bastion_user: ubuntu
+bastion_public_ip: <The bastion host's IP>
+private_key_path: <The path to the private key file>
