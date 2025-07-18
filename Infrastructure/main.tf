@@ -1,4 +1,21 @@
-# 1. Create VPC
+# -------------------- 0. Key Pair (PEM) --------------------
+resource "tls_private_key" "ec2_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
+}
+
+resource "aws_key_pair" "nodejs_key" {
+  key_name   = "nodejs-key"
+  public_key = tls_private_key.ec2_key.public_key_openssh
+}
+
+resource "local_file" "ec2_key_pem" {
+  filename        = "${path.module}/nodejs.pem"
+  content         = tls_private_key.ec2_key.private_key_pem
+  file_permission = "0400"
+}
+
+# -------------------- 1. VPC --------------------
 resource "aws_vpc" "node_js_vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_hostnames = true
@@ -9,7 +26,7 @@ resource "aws_vpc" "node_js_vpc" {
   }
 }
 
-# 2. Create Public Subnet
+# -------------------- 2. Public Subnet --------------------
 resource "aws_subnet" "public_subnet" {
   vpc_id                  = aws_vpc.node_js_vpc.id
   cidr_block              = var.public_subnet_cidr
@@ -21,7 +38,7 @@ resource "aws_subnet" "public_subnet" {
   }
 }
 
-# 3. Create Private Subnet
+# -------------------- 3. Private Subnet --------------------
 resource "aws_subnet" "private_subnet" {
   vpc_id            = aws_vpc.node_js_vpc.id
   cidr_block        = var.private_subnet_cidr
@@ -32,7 +49,16 @@ resource "aws_subnet" "private_subnet" {
   }
 }
 
-# 4. Create Public Route Table
+# -------------------- 4. Internet Gateway --------------------
+resource "aws_internet_gateway" "my_internet_gateway" {
+  vpc_id = aws_vpc.node_js_vpc.id
+
+  tags = {
+    Name = var.project_tag
+  }
+}
+
+# -------------------- 5. Route Tables --------------------
 resource "aws_route_table" "public_route_table" {
   vpc_id = aws_vpc.node_js_vpc.id
 
@@ -46,31 +72,11 @@ resource "aws_route_table" "public_route_table" {
   }
 }
 
-# 5. Create Private Route Table
-resource "aws_route_table" "private_route_table" {
-  vpc_id = aws_vpc.node_js_vpc.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat.id
-  }
-  tags = {
-    Name = "${var.project_tag}-private"
-  }
-}
-
-# 6. Associate Public Route Table with Public Subnet
 resource "aws_route_table_association" "public_route_table_association" {
   subnet_id      = aws_subnet.public_subnet.id
   route_table_id = aws_route_table.public_route_table.id
 }
 
-# 7. Associate Private Route Table with Private Subnet
-resource "aws_route_table_association" "private_route_table_association" {
-  subnet_id      = aws_subnet.private_subnet.id
-  route_table_id = aws_route_table.private_route_table.id
-}
-
-# 8. NAT Gateway
 resource "aws_eip" "nat_eip" {
   domain = "vpc"
 }
@@ -81,64 +87,31 @@ resource "aws_nat_gateway" "nat" {
   depends_on    = [aws_internet_gateway.my_internet_gateway]
 }
 
-# 9. Create Internet Gateway
-resource "aws_internet_gateway" "my_internet_gateway" {
+resource "aws_route_table" "private_route_table" {
   vpc_id = aws_vpc.node_js_vpc.id
 
-  tags = {
-    Name = var.project_tag
+  route {
+    cidr_block     = "0.0.0.0/0"
+    nat_gateway_id = aws_nat_gateway.nat.id
   }
-}
-
-# 10. Bastion Host in Public Subnet
-resource "aws_instance" "bastion_host" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.instance_type
-  subnet_id                   = aws_subnet.public_subnet.id
-  vpc_security_group_ids      = [aws_security_group.allow_ssh.id, aws_security_group.allow_jenkins.id]
-  key_name                    = aws_key_pair.nodejs_key.key_name
-  associate_public_ip_address = true
-  user_data                   = file("${path.module}/shell.sh")
-
 
   tags = {
-    Name = "${var.project_tag}-bastion"
-  }
-
-  depends_on = [aws_internet_gateway.my_internet_gateway]
-
-  provisioner "local-exec" {
-    command = "echo ${self.private_ip}"
+    Name = "${var.project_tag}-private"
   }
 }
 
-# 11. Private Application Host
-resource "aws_instance" "application" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = var.instance_type
-  subnet_id              = aws_subnet.private_subnet.id
-  vpc_security_group_ids = [aws_security_group.allow_ssh_and_port_3000.id]
-  key_name               = aws_key_pair.nodejs_key.key_name
-
-  tags = {
-    Name = "${var.project_tag}-app"
-  }
+resource "aws_route_table_association" "private_route_table_association" {
+  subnet_id      = aws_subnet.private_subnet.id
+  route_table_id = aws_route_table.private_route_table.id
 }
 
-# 12. key pair
-resource "aws_key_pair" "nodejs_key" {
-  key_name   = "nodejs-key"
-  public_key = file("${path.module}/id_rsa.pub")
-}
-
-# 13. Security Group 
+# -------------------- 6. Security Groups --------------------
 resource "aws_security_group" "allow_ssh" {
   name        = "allow-ssh"
-  description = "Allow SSH"
   vpc_id      = aws_vpc.node_js_vpc.id
+  description = "Allow SSH from anywhere"
 
   ingress {
-    description = "SSH"
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
@@ -151,16 +124,11 @@ resource "aws_security_group" "allow_ssh" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name = "allow-ssh"
-  }
 }
 
-# 14. SG 3000
 resource "aws_security_group" "allow_ssh_and_port_3000" {
   name        = "allow-ssh-3000"
-  description = "Allow SSH and Port 3000"
+  description = "Allow SSH and App Port 3000"
   vpc_id      = aws_vpc.node_js_vpc.id
 
   ingress {
@@ -183,24 +151,18 @@ resource "aws_security_group" "allow_ssh_and_port_3000" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-
-  tags = {
-    Name = "allow-ssh-and-3000"
-  }
 }
 
-# 15. SG for the Jenkins 
 resource "aws_security_group" "allow_jenkins" {
   name        = "allow-jenkins"
-  description = "Allow Jenkins Web UI"
+  description = "Allow Jenkins UI"
   vpc_id      = aws_vpc.node_js_vpc.id
 
   ingress {
-    description = "Allow Jenkins UI"
     from_port   = 8080
     to_port     = 8080
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] 
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -209,8 +171,34 @@ resource "aws_security_group" "allow_jenkins" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+# -------------------- 7. Bastion Host --------------------
+resource "aws_instance" "bastion_host" {
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = var.instance_type
+  subnet_id                   = aws_subnet.public_subnet.id
+  vpc_security_group_ids      = [aws_security_group.allow_ssh.id, aws_security_group.allow_jenkins.id]
+  key_name                    = aws_key_pair.nodejs_key.key_name
+  associate_public_ip_address = true
+  user_data                   = file("${path.module}/shell.sh")
 
   tags = {
-    Name = "allow-jenkins"
+    Name = "${var.project_tag}-bastion"
+  }
+
+  depends_on = [aws_internet_gateway.my_internet_gateway]
+}
+
+# -------------------- 8. Application Host --------------------
+resource "aws_instance" "application" {
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = var.instance_type
+  subnet_id              = aws_subnet.private_subnet.id
+  vpc_security_group_ids = [aws_security_group.allow_ssh_and_port_3000.id]
+  key_name               = aws_key_pair.nodejs_key.key_name
+
+  tags = {
+    Name = "${var.project_tag}-app"
   }
 }
