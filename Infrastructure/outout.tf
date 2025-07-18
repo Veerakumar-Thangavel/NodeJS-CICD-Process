@@ -27,6 +27,7 @@ resource "aws_ssm_parameter" "private_key" {
   name  = "/ec2/keypair/private"
   type  = "SecureString"
   value = file("${path.module}/id_rsa") # Make sure id_rsa is present
+  overwrite   = true             
 }
 
 
