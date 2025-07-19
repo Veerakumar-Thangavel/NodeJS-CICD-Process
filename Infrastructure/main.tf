@@ -173,9 +173,9 @@ resource "aws_security_group" "allow_jenkins" {
   }
 }
 
-# -------------------- 7. Bastion Host --------------------
+# -------------------- 7. Bastion Host with EIP --------------------
 resource "aws_instance" "bastion_host" {
-  ami                         = data.aws_ami.ubuntu.id
+  ami                         = "ami-0c55b159cbfafe1f0" # Ubuntu 22.04 LTS (Example - Replace with correct AMI)
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.public_subnet.id
   vpc_security_group_ids      = [aws_security_group.allow_ssh.id, aws_security_group.allow_jenkins.id]
@@ -190,9 +190,14 @@ resource "aws_instance" "bastion_host" {
   depends_on = [aws_internet_gateway.my_internet_gateway]
 }
 
+resource "aws_eip" "bastion_eip" {
+  instance = aws_instance.bastion_host.id
+  vpc      = true
+}
+
 # -------------------- 8. Application Host --------------------
 resource "aws_instance" "application" {
-  ami                    = data.aws_ami.ubuntu.id
+  ami                    = "ami-0c55b159cbfafe1f0" # Ubuntu 22.04 LTS (Example - Replace if needed)
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.private_subnet.id
   vpc_security_group_ids = [aws_security_group.allow_ssh_and_port_3000.id]
