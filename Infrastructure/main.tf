@@ -4,17 +4,16 @@ resource "tls_private_key" "ec2_key" {
   rsa_bits  = 4096
 }
 
-resource "aws_key_pair" "nodejs_key" {
-  key_name   = "nodejs-key"
-  public_key = tls_private_key.ec2_key.public_key_openssh
+resource "tls_private_key" "nodejs_key" {
+  algorithm = "RSA"
+  rsa_bits  = 4096
 }
 
 resource "local_file" "private_key" {
-  content              = tls_private_key.nodejs_key.private_key_pem
-  filename             = "${path.module}/nodejs-key.pem"
-  file_permission      = "0400"
-  directory_permission = "0700"
+  content  = tls_private_key.nodejs_key.private_key_pem
+  filename = "${path.module}/id_rsa"
 }
+
 
 
 # -------------------- 1. VPC --------------------
