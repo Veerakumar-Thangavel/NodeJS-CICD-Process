@@ -9,11 +9,13 @@ resource "aws_key_pair" "nodejs_key" {
   public_key = tls_private_key.ec2_key.public_key_openssh
 }
 
-resource "local_file" "ec2_key_pem" {
-  filename = "${path.module}/nodejs-key.pem"
-  content         = tls_private_key.ec2_key.private_key_pem
-  file_permission = "0400"
+resource "local_file" "private_key" {
+  content              = tls_private_key.nodejs_key.private_key_pem
+  filename             = "${path.module}/nodejs-key.pem"
+  file_permission      = "0400"
+  directory_permission = "0700"
 }
+
 
 # -------------------- 1. VPC --------------------
 resource "aws_vpc" "node_js_vpc" {
